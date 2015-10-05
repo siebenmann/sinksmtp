@@ -24,6 +24,7 @@
 //            IP IPADDR|CIDR|FILENAME
 //            DNSBL DOMAIN
 //            SOURCE arg
+//            DBL DOM-SRC[,DOM-SRC] DOMAIN
 // with    -> WITH clause
 // wclause -> wterm [wclause]
 // wterm   -> MESSAGE arg
@@ -212,6 +213,17 @@ func (p *parser) pOnOff() (on bool, err error) {
 	}
 }
 
+// parse dbl arguments: HOST|EHLO|HELO|FROM DOMAIN
+// we defer to pDomain() to pick up the domain.
+func (p *parser) pDblArgs() (Option, string, error) {
+	opt, err := p.pCommaOpts(dblMap)
+	if err != nil {
+		return opt, "", err
+	}
+	arg, err := p.pDomain()
+	return opt, arg, err
+}
+
 // Minimum phase requirements for various things that cannot be evaluated
 // at any time.
 // This is used to set the overall phase requirement for the rule being
@@ -224,6 +236,10 @@ var minReq = map[itemType]Phase{
 	// MAIL FROM, because the first HELO/EHLO will be without
 	// TLS and then they will STARTTLS again.
 	itemTls: pMfrom,
+	// itemDbl does not go in here because we need to handle it
+	// specially. Rather than have a single priority (which would
+	// have to be pMfrom), we determine the itemDbl priority on
+	// the fly based on what domain sources it uses.
 }
 
 // Options for HELO-HAS, DNS, FROM-HAS, and TO-HAS. These map from lexer
@@ -244,11 +260,23 @@ var addrMap = map[itemType]Option{
 	itemDomainTempfail: oDomainTempfail,
 }
 
+// That we map itemEhlo and itemHelo to the same option requires a special
+// hack in optsReverse(). Doing better would be nice but probably requires
+// using the 'stringer' command with custom processing (because of our
+// 'o...' names).
+var dblMap = map[itemType]Option{
+	itemHost: oHost, itemEhlo: oEhlo, itemHelo: oEhlo, itemFrom: oFrom,
+	itemAny: oAny,
+}
+
 // map from the starting token to the appropriate option map.
+// NOTE: a specific map must be in this meta-map in order to have the
+// Option.String() stuff work right; see optsReverse().
 var mapMap = map[itemType]map[itemType]Option{
 	itemFromHas: addrMap, itemToHas: addrMap,
 	itemHeloHas: heloMap,
 	itemDns:     dnsMap,
+	itemDbl:     dblMap,
 }
 
 // parse: any variant of comma-separated options. We are called with
@@ -316,6 +344,9 @@ func (p *parser) pTerm() (expr Expr, err error) {
 	case itemFromHas, itemToHas, itemDns, itemHeloHas:
 		p.consume()
 		opts, err = p.pCommaOpts(mapMap[ct])
+	case itemDbl:
+		p.consume()
+		opts, arg, err = p.pDblArgs()
 	default:
 		// The current token is not actually a valid term.
 		// Since we are bottoming out on the parsing stack,
@@ -354,6 +385,23 @@ func (p *parser) pTerm() (expr Expr, err error) {
 		return newHeloOpt(opts), nil
 	case itemTls:
 		return &TlsN{on: ison}, nil
+	case itemDbl:
+		// Set minimum phase requirement specially, based on the
+		// type of our lookup. We must check in this order so
+		// that multiple sources pick the latest phase.
+		var ph Phase
+		switch {
+		case (opts & oFrom) == oFrom:
+			ph = pMfrom
+		case (opts & oEhlo) == oEhlo:
+			ph = pHelo
+		default:
+			ph = pAny
+		}
+		if ph != pAny && ph > p.currule.requires {
+			p.currule.requires = ph
+		}
+		return newDblNode(opts, arg), nil
 	default:
 		// we should have trapped not-a-term above.
 		// reaching here is a coding error.

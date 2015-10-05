@@ -91,9 +91,14 @@ const (
 	oDomainInvalid
 	oDomainTempfail
 
+	// dbl options; oEhlo is already above.
+	oHost
+	oFrom
+
 	// merged bitmaps
 	oBad = oUnqualified | oRoute | oNoat | oGarbage
 	oIp  = oBareip | oProperip
+	oAny = oHost | oEhlo | oFrom
 )
 
 // Result is the result of evaluating a rule expression. Currently it
@@ -421,6 +426,73 @@ func newSourceNode(arg string) Expr {
 
 // ------
 
+// DblNode is the matcher for DNS domain blocklist lookup. Like
+// regular DNSBl nodes it has the DBL domain, but it also has where to
+// get the domain(s) to check.
+type DblNode struct {
+	domain string
+	src    Option
+}
+
+func (d *DblNode) String() string {
+	return fmt.Sprintf("dbl %s %s", d.src, d.domain)
+}
+
+func (d *DblNode) Eval(c *Context) (r Result) {
+	// track names to check in a map, so we can suppress duplicates
+	// (which might be common in some circumstances, eg 'dbl any ...')
+	check := make(map[string]struct{})
+	if (d.src&(oEhlo|oHelo)) != 0 && c.heloname != "" {
+		check[c.heloname] = struct{}{}
+	}
+	if (d.src & oHost) == oHost {
+		// DNS names have a trailing '.', which we must remove.
+		for _, s := range c.trans.rdns.verified {
+			check[s[:len(s)-1]] = struct{}{}
+		}
+		for _, s := range c.trans.rdns.nofwd {
+			check[s[:len(s)-1]] = struct{}{}
+		}
+		for _, s := range c.trans.rdns.inconsist {
+			check[s[:len(s)-1]] = struct{}{}
+		}
+	}
+	if (d.src&oFrom) == oFrom && c.from != "" {
+		aopt := getAddrOpts(c.from, c)
+		if (aopt & (oDomainValid | oDomainInvalid | oDomainTempfail)) != 0 {
+			idx := strings.IndexByte(c.from, '@')
+			check[c.from[idx+1:]] = struct{}{}
+		}
+	}
+	// We might have nothing to check if we don't have certain
+	// information, eg we've been asked to check the hostname
+	// and there is none.
+	if len(check) == 0 {
+		return false
+	}
+
+	// If we have multiple domains (possible from multiple sources)
+	// we check all of them even if one hits. Since check is a map,
+	// we will see domains in a random order. We don't care about
+	// this since we check them all.
+	ret := Result(false)
+	for s := range check {
+		ln := fmt.Sprintf("%s.%s", s, d.domain)
+		res := c.getDnsblRes(ln)
+		if res {
+			c.addDnsblHit(d.domain)
+			ret = Result(true)
+		}
+	}
+	return ret
+}
+
+func newDblNode(typ Option, arg string) Expr {
+	return &DblNode{domain: arg, src: typ}
+}
+
+// ------
+
 // OptionN is the general matcher for options.
 // Options have getter functions that interrogate the context to determine
 // what is the case. Those live in rules.go.
@@ -443,6 +515,10 @@ func (opts Option) String() string {
 	if (opts & oIp) == oIp {
 		l = append(l, "ip")
 		opts = opts - oIp
+	}
+	if (opts & oAny) == oAny {
+		l = append(l, "any")
+		opts = opts - oAny
 	}
 	for k, v := range revMap {
 		if (k & opts) == k {
@@ -474,6 +550,10 @@ func optsReverse() map[Option]string {
 			rev[v] = revi[k]
 		}
 	}
+	// very special hack, required because the dblMap maps two things
+	// to the same value.
+	rev[oHelo] = "helo"
+	rev[oEhlo] = "ehlo"
 	return rev
 }
 

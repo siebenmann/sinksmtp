@@ -48,6 +48,11 @@ accept from-has unqualified,route,quoted,noat,garbage,bad,resolves
 accept to-has unqualified,route,quoted,noat,garbage,bad,baddom,unknown
 accept helo-has helo,ehlo,none,nodots,bareip,properip,ip,myip,remip,otherip
 
+reject dbl host,ehlo fred.jim
+reject dbl helo,from fred.jim
+reject dbl any fred.jim
+reject dbl host fred.jim
+
 # we assume /dev/null is always present, because we're Unix-biased like that.
 include /dev/null
 `
@@ -139,6 +144,10 @@ func setupContext(t *testing.T) *Context {
 	rt = true
 	c.dnsbl["3.10.168.192.nosuch.domain."] = &rt
 	c.dnsbl["3.10.168.192.notthere.domi."] = &rf
+	c.dnsbl["h.i.dbl.domi."] = &rt
+	c.dnsbl["jones.com.dbl2.domi."] = &rt
+	c.dnsbl["joebob.ben.dbl2.domi."] = &rt
+	c.dnsbl["jones.com.dbl.domi."] = &rf
 
 	err := setupFile(c, "/a/file", aList)
 	if err != nil {
@@ -196,6 +205,13 @@ accept source .ben
 accept source jones.com
 accept source /a/file2
 accept not source example.com
+# dbl tests
+accept dbl from dbl2.domi
+accept dbl host dbl.domi
+accept dbl helo dbl2.domi
+accept dbl any dbl2.domi
+accept dbl any dbl.domi
+accept not dbl from dbl.domi
 `
 
 // Verify that all rules in allSuccess do succeed.
@@ -357,7 +373,12 @@ set-with all with ;
 set-with all with note a; all
 set-with all with tls-opt yes
 set-with all with tls-opt
-@from accept to @fbi.gov`
+@from accept to @fbi.gov
+accept dbl
+accept dbl ehlo
+accept dbl ehlo, som.dom
+accept dbl nodns som.dom
+accept dbl from has-no-dots`
 
 func TestNotParse(t *testing.T) {
 	for _, ln := range strings.Split(notParse, "\n") {
@@ -405,6 +426,23 @@ func TestDnsblHit(t *testing.T) {
 	}
 	if len(c.dnsblhit) != 0 {
 		t.Fatalf("c.dnsblhit is not empty after notthere.domi test:\n\t%v\n", c.dnsblhit)
+	}
+
+	c.dnsblhit = []string{}
+	rules, _ = Parse("accept dbl from dbl2.domi")
+	if !rules[0].check(c) {
+		t.Fatalf("did not hit for dbl from jones.com in dbl2.domi")
+	}
+	if len(c.dnsblhit) != 1 && c.dnsblhit[0] != "jones.com" {
+		t.Fatalf("did not list jones.com in c.dnsblhit:\n\t%v", c.dnsblhit)
+	}
+	c.dnsblhit = []string{}
+	rules, _ = Parse("accept dbl from dbl.domi")
+	if rules[0].check(c) {
+		t.Fatalf("did hit for dbl from jones.com in dbl.domi")
+	}
+	if len(c.dnsblhit) != 0 {
+		t.Fatalf("c.dnsblhit has contents despite miss:\n\t%v", c.dnsblhit)
 	}
 }
 

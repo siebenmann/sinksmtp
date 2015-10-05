@@ -112,6 +112,7 @@ const (
 	itemIp
 	itemDnsbl
 	itemSource
+	itemDbl
 
 	// add-ons
 	itemWith
@@ -145,6 +146,7 @@ const (
 	itemOff
 	itemGood
 	itemExists
+	itemAny
 
 	// highest keyword, well, one larger than it.
 	itemMaxItem
@@ -187,6 +189,7 @@ var keywords = map[string]itemType{
 	"ip":       itemIp,
 	"dnsbl":    itemDnsbl,
 	"source":   itemSource,
+	"dbl":      itemDbl,
 
 	// add-ons
 	"with":    itemWith,
@@ -220,6 +223,7 @@ var keywords = map[string]itemType{
 	"off":          itemOff,
 	"good":         itemGood,
 	"exists":       itemExists,
+	"any":          itemAny,
 }
 
 const eof = -1

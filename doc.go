@@ -458,6 +458,15 @@ described later.
  dnsbl DOMAIN		true if the remote IP is in the given DNS
 			blocklist (with any IP address).
 
+ dbl SRCS DOMAIN	True if the domain from at least one of the
+			SRCS is listed in the given domain name DNS
+			blocklist (with any IP address). SRCS are
+			comma separated; valid ones are 'host',
+			'helo/ehlo', 'from', and 'any' (for all of the
+			previous). For 'host', all available DNS names
+			are checked, whether or not they passed
+			validation.
+
  tls on|off		match if TLS is on or off respectively on
 			the connection. This doesn't match before
 			MAIL FROM right now, because clients
