@@ -14,6 +14,7 @@ import (
 type Phase int
 
 const (
+	// Note: pAny is and must be the zero value.
 	pAny Phase = iota
 	pConnect
 	pHelo
@@ -21,8 +22,6 @@ const (
 	pRto
 	pData
 	pMessage
-
-	pMax
 )
 
 var pMap = map[Phase]string{
