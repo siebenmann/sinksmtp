@@ -1,0 +1,26 @@
+Sinksmtp is a 'sink' SMTP server, one that talks SMTP and potentially
+captures incoming email, but doesn't do anything with any email it
+captures except log it to disk.  The author uses it to capture incoming
+spam to what are now spamtrap addresses.
+
+Sinksmtp supports TLS if configured, among other things.
+
+Sinksmtp supports a number of ways to filter and select what incoming
+SMTP transactions can get as far as submitting messages and which ones
+are refused earlier. The author uses this to filter out uninteresting
+spam and spam sources in his spamtrap server.
+
+See doc.go / godoc for the detailed documentation.
+
+Sinksmtp uses my smtpd Go package[*] to handle the low level details
+of SMTP serving. It was previously part of the source repo for that
+package, as a usage example, but it has considerably outgrown being a
+simple usage example and has now moved into a separate repo.
+
+Chris Siebenmann
+
+https://github.com/siebenmann/sinksmtp
+
+Copyright: GPL v3
+
+[*: https://github.com/siebenmann/smtpd ]
