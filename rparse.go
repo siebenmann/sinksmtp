@@ -94,7 +94,6 @@ func (p *parser) genError(msg string) error {
 	case itemError:
 		// the real problem is that we hit a lexing error;
 		// the msg we've been passed in is basically irrelevant.
-		fnd = "lexing error: " + p.curtok.val
 		s := fmt.Sprintf("at line %d char %d: lexing error: %s",
 			ln, lp, p.curtok.val)
 		return errors.New(s)
