@@ -46,7 +46,7 @@ accept dns good or dns noforward,inconsistent,nodns or dns exists
 accept tls on or tls off
 accept from-has unqualified,route,quoted,noat,garbage,bad,resolves
 accept to-has unqualified,route,quoted,noat,garbage,bad,baddom,unknown
-accept helo-has helo,ehlo,none,nodots,bareip,properip,ip,myip,remip,otherip
+accept helo-has helo,ehlo,none,nodots,bareip,properip,ip,myip,remip,otherip,bogus
 
 reject dbl host,ehlo fred.jim
 reject dbl helo,from fred.jim
@@ -299,6 +299,8 @@ var heloTests = []struct {
 	{"", "helo-has nodots"},
 	{"fred", "helo-has nodots"},
 	{"fred.jim", "helo-has ehlo not helo-has nodots"},
+	{".", "helo-has bogus"},
+	{".", "helo-has nodots"},
 }
 
 func TestHeloHas(t *testing.T) {
@@ -365,8 +367,6 @@ accept all with message fred message barney
 accept all with note fred note barney
 accept all with savedir fred savedir barney
 accept with message fred
-accept all with note "embedded newline
-	is here"
 set-with all
 set-with all with note a;
 set-with all with ;
@@ -380,13 +380,22 @@ accept dbl ehlo, som.dom
 accept dbl nodns som.dom
 accept dbl from has-no-dots`
 
+// This must be handled specially because it contains an embedded newline.
+var notParseSpec = `
+accept all with note "embedded newline
+	is here"`
+
 func TestNotParse(t *testing.T) {
-	for _, ln := range strings.Split(notParse, "\n") {
-		rules, err := Parse(ln)
+	check := func(s string) {
+		rules, err := Parse(s)
 		if err == nil {
-			t.Errorf("rule did not error out: '%s'\n\t%+v\n", ln, rules)
+			t.Errorf("rule did not error out: '%s'\n\t%+v\n", s, rules)
 		}
 	}
+	for _, ln := range strings.Split(notParse, "\n") {
+		check(ln)
+	}
+	check(notParseSpec)
 }
 
 // Test that we don't have a lexer goroutine sitting around after we're

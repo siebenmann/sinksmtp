@@ -23,7 +23,7 @@ accept from a@b.com helo .barney
 @message reject to cks@jon.snow
 @helo reject helo /a/file host file:something
 reject helo somename (from info@fbi.gov or fred@barney) not to i@addr
-reject helo-has helo,ehlo,none,nodots,bareip tls on tls off
+reject helo-has helo,ehlo,none,nodots,bareip,bogus tls on tls off
 @from reject dns nodns,inconsistent,noforward address route,quoted,noat
 reject helo-has \
 	ehlo,none dnsbl fred.jim

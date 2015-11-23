@@ -67,6 +67,7 @@ const (
 	oHelo Option = 1 << iota
 	oEhlo
 	oNone
+	oBogus
 	oNodots
 	oBareip
 	oProperip

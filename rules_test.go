@@ -60,6 +60,8 @@ var ahMatches = []struct {
 	{"abc", ".abc"},
 	{"abc.def", ".def"},
 	{"abc.def.ghi", ".ghi"},
+	// This is questionable, but let's go for it.
+	{".", "."},
 }
 var nhMatches = []struct {
 	h, pat string
@@ -67,6 +69,8 @@ var nhMatches = []struct {
 	{"abc", "not"},
 	{"abc", ".not"},
 	{"prefabc", ".abc"},
+	{".", "not"},
+	{".", ".not"},
 }
 
 func TestHostMatches(t *testing.T) {
@@ -116,6 +120,37 @@ func TestAddrOpts(t *testing.T) {
 		o := getAddrOpts(opt.addr, c)
 		if o != opt.opt {
 			t.Errorf("address '%s' evaluated to: %v instead of %v\n", opt.addr, o, opt.opt)
+		}
+	}
+}
+
+// This kind of duplicates TestHeloHas in rparse_test.go, but it turns
+// out that I want to directly test what certain EHLO names generate,
+// not do so indirectly by probing with helo-has rule matches.
+//
+// Options here don't include oEhlo; that's automatically added.
+var hOpts = []struct {
+	host string
+	opt  Option
+}{
+	{"", oNone | oNodots},
+	{"abc.def", oZero},
+	{"abcdef", oNodots},
+	{".", oBogus | oNodots},
+	{"127.0.0.1", oBareip | oMyip},
+	{"[127.0.0.1]", oProperip | oMyip},
+	{"[127.100.100.100]", oProperip | oOtherip},
+	{"[192.168.10.3]", oProperip | oRemip},
+	{"1::", oBareip | oOtherip},
+}
+
+func TestHostOpts(t *testing.T) {
+	c := setupContext(t)
+	for _, opt := range hOpts {
+		c.heloname = opt.host
+		o := heloGetter(c)
+		if o != opt.opt|oEhlo {
+			t.Errorf("host '%s' evaluated to: %v instead of %v\n", opt.host, o, opt.opt|oEhlo)
 		}
 	}
 }

@@ -7,9 +7,10 @@ package main
 
 import (
 	"fmt"
-	"github.com/siebenmann/smtpd"
 	"net"
 	"strings"
+
+	"github.com/siebenmann/smtpd"
 )
 
 // DNSResult encapsulates the DNS result and any error. This is a hack.
@@ -190,6 +191,12 @@ func heloGetter(c *Context) (o Option) {
 	if hn == "" {
 		return o | oNone | oNodots
 	}
+	// Sure, technically it has a dot, but this is not what we mean
+	// when we say an EHLO name has a dot in it; 'dot' implies 'sort
+	// of well-formed'.
+	if hn == "." {
+		return o | oBogus | oNodots
+	}
 	idx1 := strings.IndexByte(hn, '.')
 	idx2 := strings.IndexByte(hn, ':')
 	if idx1 == -1 && idx2 == -1 {
@@ -287,6 +294,11 @@ type sDotIter struct {
 }
 
 func (s *sDotIter) Next() string {
+	// Might have a terminating '.' because of some joker. Go joker!
+	// That causes an invalid slice panic if not caught.
+	if len(s.s) <= s.p {
+		return ""
+	}
 	idx := strings.IndexByte(s.s[s.p+1:], '.')
 	if idx == -1 {
 		return ""

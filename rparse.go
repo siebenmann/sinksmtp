@@ -247,6 +247,7 @@ var heloMap = map[itemType]Option{
 	itemHelo: oHelo, itemEhlo: oEhlo, itemNone: oNone, itemNodots: oNodots,
 	itemBareip: oBareip, itemProperip: oProperip, itemMyip: oMyip,
 	itemRemip: oRemip, itemOtherip: oOtherip, itemIp: oIp,
+	itemBogus: oBogus,
 }
 var dnsMap = map[itemType]Option{
 	itemNodns: oNodns, itemInconsistent: oInconsist, itemNoforward: oNofwd,
@@ -489,6 +490,12 @@ func (p *parser) pWClause(rc *RClause) (bool, error) {
 			}
 			p.consume()
 			arg, err = p.pArg()
+			if ct == itemNote {
+				idx := strings.IndexByte(arg, '\n')
+				if idx != -1 {
+					return gotone, p.posError(fmt.Sprintf("note contains embedded newline"))
+				}
+			}
 		case itemTlsOpt:
 			if _, ok := rc.withs[cv]; ok {
 				return gotone, p.posError(fmt.Sprintf("repeated '%s' option in with clause", cv))

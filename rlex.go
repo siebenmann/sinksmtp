@@ -124,6 +124,7 @@ const (
 	// options that do not duplicate keywords
 	itemEhlo
 	itemNone
+	itemBogus
 	itemNodots
 	itemBareip
 	itemProperip
@@ -201,6 +202,7 @@ var keywords = map[string]itemType{
 	// options
 	"ehlo":         itemEhlo,
 	"none":         itemNone,
+	"bogus":        itemBogus,
 	"nodots":       itemNodots,
 	"bareip":       itemBareip,
 	"properip":     itemProperip,

@@ -620,11 +620,14 @@ HATTRS is one or more of:
 	none		There was no EHLO/HELO name give, just 'EHLO'.
 			This can't match right now because sinksmtp
 			itself rejects such names.
+	bogus		The HELO/EHLO name was strikingly bogus. Right now
+			the only case is a name of '.'.
 	helo		The client used the 'HELO' command instead of 'EHLO'
 	ehlo		The client used 'EHLO' instead of 'HELO'
 	nodots		The HELO name doesn't have any dots in it (and
 			technically we allow a : instead), ie it is just
 			'EHLO fred' instead of 'EHLO fred.whatever'.
+			An 'EHLO .' is considered to have no dots in it.
 	bareip		The HELO name appears to be just a bare IP address,
 			eg 'HELO 127.0.0.1' (instead of 'HELO [127.0.0.1]').
 	properip	The HELO name is a proper IP literal, eg
