@@ -42,7 +42,7 @@ func (d dnsResult) String() string {
 
 // this is extremely ugly, but the net.DNSError code gives us
 // no better way. serverrstr is the exact error string that
-// src/pkg/net/dnsclient.go uses in answer() if the server returns
+// src/net/dnsclient.go uses in answer() if the server returns
 // anything but dnsRcodeSuccess or dnsRcodeNameError, and in particular
 // when the rcode is dnsRcodeServerFailure (aka SERVFAIL, aka what DNS
 // servers return if eg they can't talk to any of the authoritative
