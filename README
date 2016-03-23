@@ -17,6 +17,17 @@ of SMTP serving. It was previously part of the source repo for that
 package, as a usage example, but it has considerably outgrown being a
 simple usage example and has now moved into a separate repo.
 
+There are some fancier packages that may be better alternatives to
+sinksmtp for things like accepting email for testing or as a logging
+mechanism for systems that don't have anything else.  The ones that I
+know of are:
+	https://github.com/mailhog/MailHog
+	http://mailslurper.com/
+
+A feature for both of these is a web interface that let you see and
+browse the received email messages. Sinksmtp just dumps any email into
+the filesystem, where it's up to you to monitor it and pull it out.
+
 Chris Siebenmann
 
 https://github.com/siebenmann/sinksmtp
