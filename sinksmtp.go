@@ -935,7 +935,10 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 		// See if this transaction has pushed the client over the
 		// edge to becoming a yakker. If so, report it to the SMTP
 		// log.
-		if cnt >= yakCount {
+		// We report yakker addition only once. This is safe even
+		// with multiple sessions happening at once because we know
+		// that *some* session will have exactly hit the yakker count.
+		if cnt == yakCount {
 			writeLog(logger, "! %s added as a yakker at hit %d\n", trans.rip, cnt)
 		}
 	case yakCount > 0 && gotsomewhere:
