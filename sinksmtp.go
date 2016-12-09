@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"crypto/tls"
+	"expvar"
 	"flag"
 	"fmt"
 	"io"
@@ -26,7 +27,20 @@ import (
 	"github.com/siebenmann/smtpd"
 )
 
-// Our message/logging time format is time without the timezone.
+var stats = expvar.NewMap("sinksmtp")
+var times expvar.Map
+var events struct {
+	connections, tlserrs, yakkers, ruleserr       expvar.Int
+	ehlo, mailfrom, rcptto, data, messages, quits expvar.Int
+	ehloAccept, mailfromAccept                    expvar.Int
+	rcpttoAccept, dataAccept                      expvar.Int
+	aborts, rsets, tlson, rsetdrops               expvar.Int
+	yakads                                        expvar.Int
+	notlscnt                                      expvar.Int
+	abandons, refuseds                            expvar.Int
+}
+
+// TimeNZ is our message/logging time format; it's time without the timezone.
 const TimeNZ = "2006-01-02 15:04:05"
 
 func warnf(format string, elems ...interface{}) {
@@ -167,6 +181,7 @@ func setupRules(baserules []*Rule) ([]*Rule, bool) {
 	// If the rules fail to load, we panic and stall everything via
 	// the simple mechanism of generating a 'stall all' set of rules.
 	warnonce("problem loading rules %s: %s\n", rfile, err)
+	events.ruleserr.Add(1)
 	return stallall, false
 }
 
@@ -194,8 +209,15 @@ type ipEnt struct {
 	count int
 }
 type ipMap struct {
-	sync.RWMutex
-	ips map[string]*ipEnt
+	sync.Mutex
+	ips   map[string]*ipEnt
+	stats struct {
+		// Size is not valid on the fly. Life is like that!
+		Size, Adds, AddsNew, AddsExpired, Dels int
+		// We count hits instead of misses because misses
+		// are the normal case.
+		Lookup, LookupHit, LookupExpired int
+	}
 }
 
 var notls = &ipMap{ips: make(map[string]*ipEnt)}
@@ -210,13 +232,16 @@ func (i *ipMap) Add(ip string, ttl time.Duration) int {
 		return 0
 	}
 	i.Lock()
+	i.stats.Adds++
 	t := i.ips[ip]
 	switch {
 	case t == nil:
 		t = &ipEnt{}
 		i.ips[ip] = t
+		i.stats.AddsNew++
 	case time.Now().Sub(t.when) >= ttl:
 		t.count = 0
+		i.stats.AddsExpired++
 	}
 	t.count++
 	t.when = time.Now()
@@ -226,22 +251,78 @@ func (i *ipMap) Add(ip string, ttl time.Duration) int {
 }
 
 func (i *ipMap) Del(ip string) {
+	if ip == "" {
+		return
+	}
 	i.Lock()
-	delete(i.ips, ip)
+	// we only count deletes if the entry actually existed,
+	// because I am crazy that way.
+	if _, ok := i.ips[ip]; ok {
+		i.stats.Dels++
+		delete(i.ips, ip)
+	}
 	i.Unlock()
 }
 func (i *ipMap) Lookup(ip string, ttl time.Duration) (bool, int) {
-	i.RLock()
+	i.Lock()
+	// we defer the unlock because we now increment stats later.
+	defer i.Unlock()
 	t := i.ips[ip]
-	i.RUnlock()
+	i.stats.Lookup++
 	if t == nil {
 		return false, 0
 	}
 	if time.Now().Sub(t.when) < ttl {
+		i.stats.LookupHit++
 		return true, t.count
 	}
-	i.Del(ip)
+	i.stats.LookupExpired++
+	// NOTE: we cannot call i.Del() here because that would attempt
+	// to lock again. So we must delete directly. This has the side
+	// effect of not increasing stats.Dels; an expired lookup implies
+	// a delete.
+	delete(i.ips, ip)
 	return false, 0
+}
+
+// This is a hack. We feed this to expvar.Func().
+func (i *ipMap) Stats() interface{} {
+	i.Lock()
+	defer i.Unlock()
+	i.stats.Size = len(i.ips)
+	return i.stats
+}
+
+// Count DNSBL hits
+type dnsblCounts struct {
+	sync.Mutex
+	dbls map[string]uint64
+}
+
+var dblcounts = &dnsblCounts{dbls: make(map[string]uint64)}
+var sblcounts = &dnsblCounts{dbls: make(map[string]uint64)}
+
+func (dc *dnsblCounts) Add(dbls []string) {
+	if len(dbls) == 0 {
+		return
+	}
+	dc.Lock()
+	for i := range dbls {
+		t := dc.dbls[dbls[i]]
+		t++
+		dc.dbls[dbls[i]] = t
+	}
+	dc.Unlock()
+}
+
+func (dc *dnsblCounts) Stats() interface{} {
+	dc.Lock()
+	defer dc.Unlock()
+	nm := make(map[string]uint64)
+	for k, v := range dc.dbls {
+		nm[k] = v
+	}
+	return nm
 }
 
 // This is used to log the SMTP commands et al for a given SMTP session.
@@ -311,6 +392,8 @@ type smtpTransaction struct {
 	log      *smtpLogger
 	lastmsg  string
 	lastamsg string
+
+	lastresgood bool // last result from decider()
 }
 
 // returns overall hash and body-of-message hash. The latter may not
@@ -529,6 +612,9 @@ func logDnsbls(c *Context) {
 	c.trans.log.Write([]byte(lmsg))
 	c.trans.lastmsg = lmsg
 
+	// Count them:
+	dblcounts.Add(c.dnsblhit)
+
 	// Special bonus feature: log actual SBL entries.
 	for i := range c.dnsblhit {
 		if c.dnsblhit[i] == "sbl.spamhaus.org." {
@@ -537,6 +623,7 @@ func logDnsbls(c *Context) {
 				lmsg = fmt.Sprintf("! SBL records: %s\n",
 					strings.Join(sbls, " "))
 				c.trans.log.Write([]byte(lmsg))
+				sblcounts.Add(sbls)
 			}
 		}
 	}
@@ -572,7 +659,7 @@ func doAccept(convo *smtpd.Conn, c *Context, transid string) {
 //
 // Returns false if the message was accepted, true if decider() handled
 // a rejection or tempfail.
-func decider(ph Phase, evt smtpd.EventInfo, c *Context, convo *smtpd.Conn, id string) bool {
+func decider(ph Phase, evt smtpd.EventInfo, c *Context, convo *smtpd.Conn, id string, trans *smtpTransaction) bool {
 	res := Decide(ph, evt, c)
 
 	logDnsbls(c)
@@ -609,8 +696,10 @@ func decider(ph Phase, evt smtpd.EventInfo, c *Context, convo *smtpd.Conn, id st
 	}
 
 	if res == aNoresult || res == aAccept {
+		trans.lastresgood = true
 		return false
 	}
+	trans.lastresgood = false
 
 	if ph == pConnect {
 		// TODO: have some way to stall or reject connections
@@ -707,6 +796,8 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 		c = newContext(trans, stallall)
 		stall = true
 		sesscounts = false
+		events.yakkers.Add(1)
+		updateTimeOf("yakker")
 	} else {
 		c = newContext(trans, rules)
 	}
@@ -794,6 +885,11 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 		tlsc.BuildNameToCertificate()
 		cfg.TLSConfig = &tlsc
 	}
+	if blocktls && blcount >= 2 {
+		// We don't need to check for certificate length, because
+		// this can only happen if TLS is enabled and available.
+		events.notlscnt.Add(1)
+	}
 
 	// With everything set up we can now create the connection.
 	convo = smtpd.NewConn(nc, cfg, l2)
@@ -805,7 +901,7 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 
 	// Check for an immediate result on the initial connection. This
 	// may disable TLS or refuse things immediately.
-	if decider(pConnect, evt, c, convo, "") {
+	if decider(pConnect, evt, c, convo, "", trans) {
 		// TODO: somehow write a message and maybe log it.
 		// this probably needs smtpd.go cooperation.
 		// Right now we just close abruptly.
@@ -823,7 +919,8 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 		case smtpd.COMMAND:
 			switch evt.Cmd {
 			case smtpd.EHLO, smtpd.HELO:
-				if decider(pHelo, evt, c, convo, "") {
+				events.ehlo.Add(1)
+				if decider(pHelo, evt, c, convo, "", trans) {
 					continue
 				}
 				trans.heloname = evt.Arg
@@ -835,11 +932,17 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 				if minphase == "helo" {
 					gotsomewhere = true
 				}
+				events.ehloAccept.Add(1)
+				if convo.TLSOn {
+					events.tlson.Add(1)
+				}
 			case smtpd.MAILFROM:
-				if decider(pMfrom, evt, c, convo, "") {
+				events.mailfrom.Add(1)
+				if decider(pMfrom, evt, c, convo, "", trans) {
 					continue
 				}
 				if trans.from != "" && !gotsomewhere && sesscounts {
+					events.rsets.Add(1)
 					// We've been RSET, which potentially
 					// counts as a failure for do-nothing
 					// client detection. Note that we are
@@ -850,6 +953,10 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 					// This has no net effect unless this
 					// final attempt succeeds.
 					if cnt > yakCount {
+						// We may overcount here due
+						// to a race.
+						events.yakads.Add(1)
+						events.rsetdrops.Add(1)
 						writeLog(logger, "! %s added as a yakker at hit %d due to RSET\n", trans.rip, cnt)
 						convo.TempfailMsg("Too many unsuccessful delivery attempts")
 						// this will implicitly close
@@ -864,8 +971,10 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 					gotsomewhere = true
 				}
 				doAccept(convo, c, "")
+				events.mailfromAccept.Add(1)
 			case smtpd.RCPTTO:
-				if decider(pRto, evt, c, convo, "") {
+				events.rcptto.Add(1)
+				if decider(pRto, evt, c, convo, "", trans) {
 					continue
 				}
 				trans.rcptto = append(trans.rcptto, evt.Arg)
@@ -873,16 +982,20 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 					gotsomewhere = true
 				}
 				doAccept(convo, c, "")
+				events.rcpttoAccept.Add(1)
 			case smtpd.DATA:
-				if decider(pData, evt, c, convo, "") {
+				events.data.Add(1)
+				if decider(pData, evt, c, convo, "", trans) {
 					continue
 				}
 				if minphase == "data" {
 					gotsomewhere = true
 				}
 				doAccept(convo, c, "")
+				events.dataAccept.Add(1)
 			}
 		case smtpd.GOTDATA:
+			events.messages.Add(1)
 			// -minphase=message means 'message
 			// successfully transmitted to us' as opposed
 			// to 'message accepted'.
@@ -906,7 +1019,7 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 			case err != nil:
 				convo.Tempfail()
 				gotsomewhere = true
-			case decider(pMessage, evt, c, convo, transid):
+			case decider(pMessage, evt, c, convo, transid, trans):
 				// do nothing, already handled
 			default:
 				if minphase == "accepted" {
@@ -914,13 +1027,20 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 				}
 				doAccept(convo, c, transid)
 			}
+			updateTimeOf("message")
 		case smtpd.TLSERROR:
 			// any TLS error means we'll avoid offering TLS
 			// to this source IP for a while.
 			notls.Add(trans.rip, tlsTimeout)
 			sesscounts = false
+			events.tlserrs.Add(1)
 		}
 		if evt.What == smtpd.DONE || evt.What == smtpd.ABORT {
+			if evt.What == smtpd.DONE {
+				events.quits.Add(1)
+			} else {
+				events.aborts.Add(1)
+			}
 			break
 		}
 	}
@@ -940,9 +1060,24 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 		// that *some* session will have exactly hit the yakker count.
 		if cnt == yakCount {
 			writeLog(logger, "! %s added as a yakker at hit %d\n", trans.rip, cnt)
+			events.yakads.Add(1)
 		}
 	case yakCount > 0 && gotsomewhere:
 		yakkers.Del(trans.rip)
+	}
+	if gotsomewhere && minphase != "message" {
+		updateTimeOf("reached_minphase")
+	}
+	// We only count abandons versus refusals for sessions that
+	// are expected to be able to do something. This is sessions
+	// that have good rules and where the session counts (or we
+	// aren't evaluating good versus bad sessions at all).
+	if rulesgood && (sesscounts || yakCount == 0) {
+		if trans.lastresgood {
+			events.abandons.Add(1)
+		} else {
+			events.refuseds.Add(1)
+		}
 	}
 }
 
@@ -1070,6 +1205,90 @@ func genStallRules() {
 	if err != nil || len(stallall) == 0 {
 		// Should never happen.
 		die("error parsing autogenerated nil rules:\n\t%v\n", err)
+	}
+}
+
+// TODO: maybe we should use Func() and just keep a stats structure.
+// But that would require locking and nngh nngh.
+func setupExpvars() {
+	var m expvar.Map
+	m.Init()
+	m.Set("notls", expvar.Func(notls.Stats))
+	m.Set("yakkers", expvar.Func(yakkers.Stats))
+	stats.Set("sizes", &m)
+	stats.Set("dnsbl_hits", expvar.Func(dblcounts.Stats))
+	stats.Set("sbl_hits", expvar.Func(sblcounts.Stats))
+
+	// BUG: must remember to do this for all counters so they have
+	// an initial value.
+	var evts expvar.Map
+	evts.Init()
+	evts.Set("connections", &events.connections)
+	evts.Set("tls_errors", &events.tlserrs)
+	evts.Set("yakkers", &events.yakkers)
+	evts.Set("notls_conns", &events.notlscnt)
+	evts.Set("rules_errors", &events.ruleserr)
+	evts.Set("yakker_adds", &events.yakads)
+	evts.Set("rsetdrops", &events.rsetdrops)
+	evts.Set("abandons", &events.abandons)
+	evts.Set("refuseds", &events.refuseds)
+	stats.Set("events", &evts)
+	var mailevts expvar.Map
+	var goodevts expvar.Map
+	var cmds expvar.Map
+	mailevts.Init()
+	goodevts.Init()
+	cmds.Init()
+	// Maybe these should track refused commands? Not sure.
+	cmds.Set("ehlo", &events.ehlo)
+	cmds.Set("mailfrom", &events.mailfrom)
+	cmds.Set("rcptto", &events.rcptto)
+	cmds.Set("data", &events.data)
+	mailevts.Set("commands", &cmds)
+
+	// These are counts of *accepted* commands.
+	// TODO: maybe revise how things are counted? Dunno.
+	goodevts.Set("ehlo", &events.ehloAccept)
+	goodevts.Set("mailfrom", &events.mailfromAccept)
+	goodevts.Set("rcptto", &events.rcpttoAccept)
+	goodevts.Set("data", &events.dataAccept)
+	goodevts.Set("messages", &events.messages)
+	mailevts.Set("accepted", &goodevts)
+
+	mailevts.Set("ehlo_tlson", &events.tlson)
+	mailevts.Set("quits", &events.quits)
+	mailevts.Set("aborts", &events.aborts)
+	mailevts.Set("rsets", &events.rsets)
+	stats.Set("smtpcounts", &mailevts)
+
+	// constants
+	stats.Add("pid", int64(os.Getpid()))
+	var stime expvar.String
+	stime.Set(time.Now().String())
+	stats.Set("startTime", &stime)
+
+	var conntime expvar.String
+	times.Init()
+	// We're going to have connections, so we set this now.
+	times.Set("connection", &conntime)
+	stats.Set("last", &times)
+}
+
+// TODO: this is ugly
+func updateTimeOf(what string) {
+	v := stats.Get("last")
+	if v == nil {
+		return
+	}
+	v = times.Get(what)
+	if v == nil {
+		var t expvar.String
+		t.Set(time.Now().Format(TimeNZ))
+		times.Set(what, &t)
+		return
+	}
+	if e, ok := v.(*expvar.String); ok {
+		e.Set(time.Now().Format(TimeNZ))
 	}
 }
 
@@ -1257,6 +1476,7 @@ func main() {
 	// Start monitoring HTTP server if we've been asked to do so.
 	if pprofserv != "" {
 		runtime.MemProfileRate = 1
+		setupExpvars()
 		go func() {
 			http.ListenAndServe(pprofserv, nil)
 		}()
@@ -1282,6 +1502,8 @@ func main() {
 	cid := 1
 	for {
 		nc := <-listenc
+		events.connections.Add(1)
+		updateTimeOf("connection")
 		go process(cid, nc, certs, logf, slogf, baserules)
 		cid++
 	}
