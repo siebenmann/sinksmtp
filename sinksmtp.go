@@ -239,7 +239,7 @@ func (i *ipMap) Add(ip string, ttl time.Duration) int {
 		t = &ipEnt{}
 		i.ips[ip] = t
 		i.stats.AddsNew++
-	case time.Now().Sub(t.when) >= ttl:
+	case time.Since(t.when) >= ttl:
 		t.count = 0
 		i.stats.AddsExpired++
 	}
@@ -272,7 +272,7 @@ func (i *ipMap) Lookup(ip string, ttl time.Duration) (bool, int) {
 	if t == nil {
 		return false, 0
 	}
-	if time.Now().Sub(t.when) < ttl {
+	if time.Since(t.when) < ttl {
 		i.stats.LookupHit++
 		return true, t.count
 	}
