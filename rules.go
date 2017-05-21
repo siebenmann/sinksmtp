@@ -433,8 +433,7 @@ func Decide(ph Phase, evt smtpd.EventInfo, c *Context) Action {
 		c.rcptto = ""
 	}
 
-	var ret Action
-	ret = aNoresult
+	var ret = aNoresult
 	c.dnsblhit = []string{}
 	c.withprops = make(map[string]string)
 	c.domerr = nil
