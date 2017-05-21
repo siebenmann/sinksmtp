@@ -133,6 +133,8 @@ var lexTests = []lexTest{
 		{itemError, "unterminated quoted value", 0}}},
 
 	{"thing;", "thing;", []item{itv("thing"), tSemic, tEOF}},
+
+	{"( ... )", "(from @ )", []item{tLB, itm("from"), itv("@"), tRB, tEOF}},
 }
 
 // collect() collects the tokens resulting from lexing a string,
