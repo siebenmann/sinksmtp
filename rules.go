@@ -66,9 +66,6 @@ type Context struct {
 	// nnngh.
 	domerr error
 
-	// we should tempfail for internal reasons, eg tempfail on file
-	// read
-	tempfail bool
 	// the current rule being evaluated should not succeed.
 	// this is used if we try to match something against an empty
 	// pattern file.
