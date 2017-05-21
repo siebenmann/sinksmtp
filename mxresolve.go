@@ -132,12 +132,21 @@ func ValidDomain(domain string) (dnsResult, error) {
 	// We assume that there is at least one MX entry since LookupMX()
 	// returned without error. This may be a bad idea but we'll see.
 	for _, m := range mxs {
+		// Explicitly check for an RFC 7505 null MX. We opt to check
+		// for the preference being 0.
+		if m.Host == "." && m.Pref == 0 {
+			return dnsBad, fmt.Errorf("%s: RFC 7505 null MX", domain)
+		}
+
 		lc := strings.ToLower(m.Host)
 		// Any MX entry of '.' or 'localhost.' means that this is
 		// not a valid target; they've said 'do not send us email'.
 		// *ANY* MX entry set this way will disqualify a host.
+		// We will get here for an MX to '.' if it doesn't have a
+		// 0 preference, which in general makes the preference worth
+		// reporting.
 		if lc == "." || lc == "localhost." {
-			return dnsBad, fmt.Errorf("rejecting bogus MX %s", m.Host)
+			return dnsBad, fmt.Errorf("rejecting bogus MX %d %s", m.Pref, m.Host)
 		}
 		// TODO: immediately fail anyone who MXs to an IP address?
 
