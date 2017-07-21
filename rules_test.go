@@ -24,6 +24,9 @@ var aMatches = []struct {
 	{"abc@def.ghi", "@.ghi"},
 	{"abc@def.ghi", "@.def.ghi"},
 	{"anything@anything", "@"},
+	// verify that upper-cased addresses match (lower-cased) patterns
+	{"ABC@DEF", "abc@"},
+	{"ABC@DEF", "@def"},
 }
 var nMatches = []struct {
 	a, pat string
