@@ -301,6 +301,7 @@ type dnsblCounts struct {
 
 var dblcounts = &dnsblCounts{dbls: make(map[string]uint64)}
 var sblcounts = &dnsblCounts{dbls: make(map[string]uint64)}
+var loccounts = &dnsblCounts{dbls: make(map[string]uint64)}
 
 func (dc *dnsblCounts) Add(dbls []string) {
 	if len(dbls) == 0 {
@@ -772,6 +773,8 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 	trans.rip, _, _ = net.SplitHostPort(trans.raddr.String())
 	trans.lip, _, _ = net.SplitHostPort(trans.laddr.String())
 
+	loccounts.Add([]string{trans.laddr.String()})
+
 	var c *Context
 	// nit: in the presence of yakkers, we must know whether or not
 	// the rules are good because bad rules turn *everyone* into
@@ -1218,6 +1221,7 @@ func setupExpvars() {
 	stats.Set("sizes", &m)
 	stats.Set("dnsbl_hits", expvar.Func(dblcounts.Stats))
 	stats.Set("sbl_hits", expvar.Func(sblcounts.Stats))
+	stats.Set("connects_to", expvar.Func(loccounts.Stats))
 
 	// BUG: must remember to do this for all counters so they have
 	// an initial value.
