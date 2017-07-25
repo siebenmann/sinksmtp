@@ -330,8 +330,8 @@ func (l *lexer) run() {
 // get the next token from the lexer channel.
 // called by the parser, not in the lexing goroutine.
 func (l *lexer) nextItem() item {
-	item := <-l.items
-	return item
+	itm := <-l.items
+	return itm
 }
 
 // drain drains the output of the lexer so that the lexing goroutine will

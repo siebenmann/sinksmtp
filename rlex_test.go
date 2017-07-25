@@ -142,9 +142,9 @@ var lexTests = []lexTest{
 func collect(input string) (items []item) {
 	l := lex(input)
 	for {
-		item := l.nextItem()
-		items = append(items, item)
-		if item.typ == itemEOF || item.typ == itemError {
+		itm := l.nextItem()
+		items = append(items, itm)
+		if itm.typ == itemEOF || itm.typ == itemError {
 			break
 		}
 	}
