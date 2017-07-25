@@ -307,8 +307,8 @@ func (l *lexer) emit(t itemType) {
 
 // emit a given fully specified token to the lexer channel
 // this is used to emit quoted strings.
-func (l *lexer) emitString(t itemType, s string) {
-	l.items <- item{t, s, l.start}
+func (l *lexer) emitString(s string) {
+	l.items <- item{itemValue, s, l.start}
 	l.start = l.pos
 }
 
@@ -489,7 +489,7 @@ func lexQuote(l *lexer) stateFn {
 		if l.input[apos] == '"' {
 			qparts = append(qparts, l.input[l.pos:apos])
 			l.pos = apos + 1
-			l.emitString(itemValue, strings.Join(qparts, ""))
+			l.emitString(strings.Join(qparts, ""))
 			return lexLineRunning
 		}
 
