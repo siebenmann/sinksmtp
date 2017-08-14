@@ -32,6 +32,7 @@ var times expvar.Map
 var events struct {
 	connections, tlserrs, yakkers, ruleserr       expvar.Int
 	ehlo, mailfrom, rcptto, data, messages, quits expvar.Int
+	starttls                                      expvar.Int
 	ehloAccept, mailfromAccept                    expvar.Int
 	rcpttoAccept, dataAccept                      expvar.Int
 	aborts, rsets, tlson, rsetdrops               expvar.Int
@@ -938,6 +939,7 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 				events.ehloAccept.Add(1)
 				if convo.TLSOn {
 					events.tlson.Add(1)
+					events.starttls.Add(1)
 				}
 			case smtpd.MAILFROM:
 				events.mailfrom.Add(1)
@@ -1037,6 +1039,7 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 			notls.Add(trans.rip, tlsTimeout)
 			sesscounts = false
 			events.tlserrs.Add(1)
+			events.starttls.Add(1)
 		}
 		if evt.What == smtpd.DONE || evt.What == smtpd.ABORT {
 			if evt.What == smtpd.DONE {
@@ -1248,6 +1251,11 @@ func setupExpvars() {
 	cmds.Set("mailfrom", &events.mailfrom)
 	cmds.Set("rcptto", &events.rcptto)
 	cmds.Set("data", &events.data)
+	// starttls is synthesized from tlserrs + ehlo_tlson, because
+	// we don't get direct access to it. This is imperfect because
+	// in theory you can STARTTLS and then not go on to EHLO. But
+	// in practice everyone does.
+	cmds.Set("starttls", &events.starttls)
 	mailevts.Set("commands", &cmds)
 
 	// These are counts of *accepted* commands.
