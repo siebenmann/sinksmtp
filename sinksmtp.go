@@ -1529,7 +1529,12 @@ func main() {
 		runtime.MemProfileRate = 1
 		setupExpvars()
 		go func() {
-			http.ListenAndServe(pprofserv, nil)
+			// TODO: Figure out what to do if this errors
+			// out. Should we die?
+			e := http.ListenAndServe(pprofserv, nil)
+			if e != nil {
+				die("pprof HTTP server failed: %s", e)
+			}
 		}()
 	}
 
