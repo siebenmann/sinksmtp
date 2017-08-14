@@ -29,6 +29,8 @@ import (
 
 var stats = expvar.NewMap("sinksmtp")
 var times expvar.Map
+var iptimes expvar.Map
+var manyIps bool
 var events struct {
 	connections, tlserrs, yakkers, ruleserr       expvar.Int
 	ehlo, mailfrom, rcptto, data, messages, quits expvar.Int
@@ -770,11 +772,12 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 	trans.savedir = savedir
 	trans.raddr = nc.RemoteAddr()
 	trans.laddr = nc.LocalAddr()
+	laddrstr := trans.laddr.String()
 	prefix := fmt.Sprintf("%d/%d", os.Getpid(), cid)
 	trans.rip, _, _ = net.SplitHostPort(trans.raddr.String())
-	trans.lip, _, _ = net.SplitHostPort(trans.laddr.String())
+	trans.lip, _, _ = net.SplitHostPort(laddrstr)
 
-	loccounts.Add([]string{trans.laddr.String()})
+	loccounts.Add([]string{laddrstr})
 
 	var c *Context
 	// nit: in the presence of yakkers, we must know whether or not
@@ -801,9 +804,10 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 		stall = true
 		sesscounts = false
 		events.yakkers.Add(1)
-		updateTimeOf("yakker")
+		updateTimeOf("yakker", laddrstr)
 	} else {
 		c = newContext(trans, rules)
+		updateTimeOf("regular", laddrstr)
 	}
 	//fmt.Printf("rules are:\n%+v\n", c.ruleset)
 
@@ -815,7 +819,7 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 		l2 = logger
 	}
 
-	sname := trans.laddr.String()
+	sname := laddrstr
 	if srvname != "" {
 		sname = srvname
 	} else {
@@ -1032,7 +1036,7 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 				}
 				doAccept(convo, c, transid)
 			}
-			updateTimeOf("message")
+			updateTimeOf("message", laddrstr)
 		case smtpd.TLSERROR:
 			// any TLS error means we'll avoid offering TLS
 			// to this source IP for a while.
@@ -1072,7 +1076,7 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 		yakkers.Del(trans.rip)
 	}
 	if gotsomewhere && minphase != "message" {
-		updateTimeOf("reached_minphase")
+		updateTimeOf("reached_minphase", laddrstr)
 	}
 	// We only count abandons versus refusals for sessions that
 	// are expected to be able to do something. This is sessions
@@ -1224,7 +1228,10 @@ func setupExpvars() {
 	stats.Set("sizes", &m)
 	stats.Set("dnsbl_hits", expvar.Func(dblcounts.Stats))
 	stats.Set("sbl_hits", expvar.Func(sblcounts.Stats))
-	stats.Set("connects_to", expvar.Func(loccounts.Stats))
+	if manyIps {
+		stats.Set("connects_to", expvar.Func(loccounts.Stats))
+		stats.Set("lasts_to", &iptimes)
+	}
 
 	// BUG: must remember to do this for all counters so they have
 	// an initial value.
@@ -1287,21 +1294,50 @@ func setupExpvars() {
 }
 
 // TODO: this is ugly
-func updateTimeOf(what string) {
+func updateOneTime(mp *expvar.Map, what string) {
+	tstr := time.Now().Format(TimeNZ)
+	v := mp.Get(what)
+	if v == nil {
+		var t expvar.String
+		t.Set(tstr)
+		mp.Set(what, &t)
+		return
+	}
+	if e, ok := v.(*expvar.String); ok {
+		e.Set(tstr)
+	}
+}
+func updateTimeOf(what, laddr string) {
 	v := stats.Get("last")
 	if v == nil {
 		return
 	}
-	v = times.Get(what)
-	if v == nil {
-		var t expvar.String
-		t.Set(time.Now().Format(TimeNZ))
-		times.Set(what, &t)
+	updateOneTime(&times, what)
+	if !manyIps || laddr == "" {
 		return
 	}
-	if e, ok := v.(*expvar.String); ok {
-		e.Set(time.Now().Format(TimeNZ))
+	v = iptimes.Get(laddr)
+	if v == nil {
+		var nm expvar.Map
+		iptimes.Set(laddr, nm.Init())
+		v = iptimes.Get(laddr)
 	}
+	e, ok := v.(*expvar.Map)
+	if !ok {
+		return
+	}
+	updateOneTime(e, what)
+
+	//	v = times.Get(what)
+	//	if v == nil {
+	//		var t expvar.String
+	//		t.Set(time.Now().Format(TimeNZ))
+	//		times.Set(what, &t)
+	//		return
+	//	}
+	//	if e, ok := v.(*expvar.String); ok {
+	//		e.Set(time.Now().Format(TimeNZ))
+	//	}
 }
 
 func usage() {
@@ -1348,7 +1384,7 @@ func main() {
 	var smtplogfile, logfile, rfiles string
 	var certfile, keyfile string
 	var pprofserv string
-	var force, nostdrules bool
+	var force, nostdrules, forcemany bool
 	var certs []tls.Certificate
 
 	// TODO: group these better. Handle these better? Something.
@@ -1372,6 +1408,8 @@ func main() {
 	flag.BoolVar(&nostdrules, "nostdrules", false, "do not use standard basic rules")
 	flag.StringVar(&pprofserv, "pprof", "", "`host:port` for net/http/pprof performance monitoring server")
 	flag.StringVar(&connfile, "conncfg", "", "`file` of per-connection parameters")
+	// TODO: this is badly described.
+	flag.BoolVar(&forcemany, "statsperip", false, "keep additional per-local-address connection stats")
 
 	flag.Usage = usage
 
@@ -1486,6 +1524,7 @@ func main() {
 	}
 
 	// Start monitoring HTTP server if we've been asked to do so.
+	manyIps = flag.NArg() > 1 || forcemany
 	if pprofserv != "" {
 		runtime.MemProfileRate = 1
 		setupExpvars()
@@ -1515,7 +1554,7 @@ func main() {
 	for {
 		nc := <-listenc
 		events.connections.Add(1)
-		updateTimeOf("connection")
+		updateTimeOf("connection", nc.LocalAddr().String())
 		go process(cid, nc, certs, logf, slogf, baserules)
 		cid++
 	}

@@ -104,6 +104,17 @@ This attempts to group options together logically.
 		its package documentation for details. Normally you
 		should restrict this to localhost if you enable it.
 		This feature may disappear someday.
+		Enabling -pprof also enables various expvar-based
+		statistics, reported at the standard endpoint
+		/debug/vars. The exposed statistics are unstable
+		and subject to change without notice.
+	-statsperip
+		Keep additional expvar stats on a per-local-address
+		basis, so you can see which of multiple addresses
+		are particularly active. Stats are kept on host:port
+		combinations. -statsperip is automatically on if multiple
+		hosts (or host:port combinations) were provided on the
+		command line.
 
 Convenience options
 
