@@ -686,13 +686,17 @@ the rule matches. The following options are supported:
 		is processed, in a rule that can act at @connect time.
 
 	make-yakker
-		Immediately consider the connecting client a do-nothing
-		'yakker' client, per the -dncount, -dndur, and -minphase
-		arguments. This only does anything if -dncount is in effect.
+		Cause this session to make the connecting client into a
+		do-nothing 'yakker' client, as if it had hit the -dncount
+		limit. This happens regardless of what additional progress
+		is made in the session, but by itself doesn't disconnect
+		or alter what happens in the rest of the session. It
+		only has any effect if -dncount is in effect.
 
 For example:
 
 	reject dnsbl sbl.spamhaus.org with message "You're SBL listed."
+	reject ehlo ylmf-pc with make-yakker
 
 For technical reasons, 'message' is ineffective for the replies to
 HELO and EHLO SMTP commands.
