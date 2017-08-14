@@ -32,7 +32,7 @@ accept ip 127.0.0.0/24 ip 127.0.0.10
 reject ip 85.90.187.32/27 or host .edmpoint.com or ehlo .edmpoint.com
 reject dnsbl sbl.spamhaus.org with message "listed in the SBL" \
 		savedir jim note barney
-set-with all with note "I am here"
+set-with all with note "I am here" make-yakker
 @connect set-with ip 100.100.100.100 with tls-opt off
 @connect set-with ip 100.200.200.100 with tls-opt no-client
 reject source fred.com
@@ -373,6 +373,7 @@ set-with all with ;
 set-with all with note a; all
 set-with all with tls-opt yes
 set-with all with tls-opt
+set-with all with make-yakker make-yakker
 @from accept to @fbi.gov
 accept dbl
 accept dbl ehlo

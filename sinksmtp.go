@@ -38,7 +38,7 @@ var events struct {
 	ehloAccept, mailfromAccept                    expvar.Int
 	rcpttoAccept, dataAccept                      expvar.Int
 	aborts, rsets, tlson, rsetdrops               expvar.Int
-	yakads                                        expvar.Int
+	yakads, yakforces                             expvar.Int
 	notlscnt                                      expvar.Int
 	abandons, refuseds                            expvar.Int
 }
@@ -216,7 +216,7 @@ type ipMap struct {
 	ips   map[string]*ipEnt
 	stats struct {
 		// Size is not valid on the fly. Life is like that!
-		Size, Adds, AddsNew, AddsExpired, Dels int
+		Size, Adds, AddsNew, AddsExpired, Dels, Sets int
 		// We count hits instead of misses because misses
 		// are the normal case.
 		Lookup, LookupHit, LookupExpired int
@@ -251,6 +251,32 @@ func (i *ipMap) Add(ip string, ttl time.Duration) int {
 	cnt := t.count
 	i.Unlock()
 	return cnt
+}
+
+// Set forces the count for a specific IP to a specific value and
+// returns the *old* count, not the current one.
+func (i *ipMap) Set(ip string, ttl time.Duration, cnt int) int {
+	if ip == "" {
+		return 0
+	}
+	i.Lock()
+	i.stats.Sets++
+	t := i.ips[ip]
+	// TODO: should this be a new SetsNew/SetsExpired stats?
+	switch {
+	case t == nil:
+		t = &ipEnt{}
+		i.ips[ip] = t
+		i.stats.AddsNew++
+	case time.Since(t.when) >= ttl:
+		t.count = 0
+		i.stats.AddsExpired++
+	}
+	t.when = time.Now()
+	ocnt := t.count
+	t.count = cnt
+	i.Unlock()
+	return ocnt
 }
 
 func (i *ipMap) Del(ip string) {
@@ -909,6 +935,8 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 
 	// Check for an immediate result on the initial connection. This
 	// may disable TLS or refuse things immediately.
+	// If we exit here, we don't count the session towards yakker
+	// status. This may be something that we want to change.
 	if decider(pConnect, evt, c, convo, "", trans) {
 		// TODO: somehow write a message and maybe log it.
 		// this probably needs smtpd.go cooperation.
@@ -1059,7 +1087,20 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 	// Once people are yakkers we don't count their continued failure
 	// to do anything against them.
 	// And we have to have good rules to start with because duh.
+	_, forceyakker := c.withprops["make-yakker"]
 	switch {
+	case forceyakker:
+		// It's a lot simpler if forced yakking takes priority
+		// over everything else.
+		cnt = yakkers.Set(trans.rip, yakTimeout, yakCount)
+		// Don't repeatedly report that the same IP has been forced
+		// to be a yakker if we have multiple simultaneous connections
+		// from it.
+		if cnt != yakCount {
+			writeLog(logger, "! %s forced to be a yakker\n", trans.rip)
+			events.yakads.Add(1)
+			events.yakforces.Add(1)
+		}
 	case !gotsomewhere && sesscounts:
 		cnt = yakkers.Add(trans.rip, yakTimeout)
 		// See if this transaction has pushed the client over the
@@ -1243,6 +1284,7 @@ func setupExpvars() {
 	evts.Set("notls_conns", &events.notlscnt)
 	evts.Set("rules_errors", &events.ruleserr)
 	evts.Set("yakker_adds", &events.yakads)
+	evts.Set("yakker_forces", &events.yakforces)
 	evts.Set("rsetdrops", &events.rsetdrops)
 	evts.Set("abandons", &events.abandons)
 	evts.Set("refuseds", &events.refuseds)

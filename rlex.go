@@ -120,6 +120,7 @@ const (
 	itemNote
 	itemSavedir
 	itemTlsOpt
+	itemMakeYakker
 
 	// options that do not duplicate keywords
 	itemEhlo
@@ -193,11 +194,12 @@ var keywords = map[string]itemType{
 	"dbl":      itemDbl,
 
 	// add-ons
-	"with":    itemWith,
-	"message": itemMessage,
-	"note":    itemNote,
-	"savedir": itemSavedir,
-	"tls-opt": itemTlsOpt,
+	"with":        itemWith,
+	"message":     itemMessage,
+	"note":        itemNote,
+	"savedir":     itemSavedir,
+	"tls-opt":     itemTlsOpt,
+	"make-yakker": itemMakeYakker,
 
 	// options
 	"ehlo":         itemEhlo,

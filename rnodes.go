@@ -169,7 +169,11 @@ func (rc *RClause) String() string {
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		with += fmt.Sprintf(" %s \"%s\"", k, rc.withs[k])
+		if rc.withs[k] != "" {
+			with += fmt.Sprintf(" %s \"%s\"", k, rc.withs[k])
+		} else {
+			with += fmt.Sprintf(" %s", k)
+		}
 	}
 	if with != "" {
 		with = " with" + with

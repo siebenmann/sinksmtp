@@ -31,6 +31,7 @@
 //            NOTE arg
 //            SAVEDIR arg
 //	      TLS-OPT OFF|NO-CLIENT
+//            MAKE-YAKKER
 // arg     -> VALUE
 //            FILENAME
 // arg actually is 'anything', keywords become values in it.
@@ -505,6 +506,12 @@ func (p *parser) pWClause(rc *RClause) (bool, error) {
 			if arg != "off" && arg != "no-client" {
 				return gotone, p.posError(fmt.Sprintf("illegal tls-opt option '%s' in with clause", arg))
 			}
+		case itemMakeYakker:
+			if _, ok := rc.withs[cv]; ok {
+				return gotone, p.posError(fmt.Sprintf("repeated '%s' option in with clause", cv))
+			}
+			p.consume()
+			arg = ""
 		default:
 			return gotone, nil
 		}

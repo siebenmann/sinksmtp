@@ -685,6 +685,11 @@ the rule matches. The following options are supported:
 		if offered.  tls-opt settings must be done before EHLO
 		is processed, in a rule that can act at @connect time.
 
+	make-yakker
+		Immediately consider the connecting client a do-nothing
+		'yakker' client, per the -dncount, -dndur, and -minphase
+		arguments. This only does anything if -dncount is in effect.
+
 For example:
 
 	reject dnsbl sbl.spamhaus.org with message "You're SBL listed."
