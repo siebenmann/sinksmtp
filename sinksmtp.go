@@ -1575,7 +1575,7 @@ func main() {
 			// out. Should we die?
 			e := http.ListenAndServe(pprofserv, nil)
 			if e != nil {
-				die("pprof HTTP server failed: %s", e)
+				die("pprof HTTP server failed: %s\n", e)
 			}
 		}()
 	}
