@@ -167,7 +167,7 @@ func setupContext(t *testing.T) *Context {
 
 // -----
 
-// all of the following rules should match with our standard artifical
+// all of the following rules should match with our standard artificial
 // context
 // As a side effect these matches test a number of the getter and
 // matcher functions in rules.go

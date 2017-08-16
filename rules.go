@@ -449,7 +449,7 @@ func Decide(ph Phase, evt smtpd.EventInfo, c *Context) Action {
 	// We don't clear c.defrule because this result is now sticky;
 	// it must apply to all RCPT TOs from now on. If the connection
 	// is RSET, the result will be cleared in our initial section.
-	// Implicity ph >= pRto, really ph == pRto, because we only set
+	// Implicitly ph >= pRto, really ph == pRto, because we only set
 	// c.deferred in pMfrom.
 	if c.defresult >= aAccept {
 		c.dnsblhit = c.defdnsblhit
