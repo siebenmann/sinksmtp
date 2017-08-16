@@ -592,8 +592,15 @@ func handleMessage(prefix string, trans *smtpTransaction, logf io.Writer) (strin
 	// is okay with us.
 	fp, err := os.OpenFile(tgt, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0666)
 	if err == nil {
-		fp.Write(m)
-		fp.Close()
+		_, err = fp.Write(m)
+		if err != nil {
+			warnf("error writing message file: %s\n", err)
+		}
+		_ = fp.Sync()
+		err = fp.Close()
+		if err != nil {
+			warnf("error closing message file: %s\n", err)
+		}
 	} else {
 		if !os.IsExist(err) {
 			warnf("error writing message file: %v\n", err)
