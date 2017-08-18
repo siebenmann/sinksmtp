@@ -373,7 +373,9 @@ set-with all with ;
 set-with all with note a; all
 set-with all with tls-opt yes
 set-with all with tls-opt
+set-with all with tls-opt no-client tls-opt off
 set-with all with make-yakker make-yakker
+set-with all with helo .com
 @from accept to @fbi.gov
 accept dbl
 accept dbl ehlo
@@ -397,6 +399,8 @@ func TestNotParse(t *testing.T) {
 		check(ln)
 	}
 	check(notParseSpec)
+	// For code coverage: this should hit the expected item, got EOL case.
+	check("accept not\n accept all")
 }
 
 // Test that we don't have a lexer goroutine sitting around after we're
