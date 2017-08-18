@@ -601,12 +601,10 @@ func handleMessage(prefix string, trans *smtpTransaction, logf io.Writer) (strin
 		if err != nil {
 			warnf("error closing message file: %s\n", err)
 		}
+	} else if !os.IsExist(err) {
+		warnf("error writing message file: %v\n", err)
 	} else {
-		if !os.IsExist(err) {
-			warnf("error writing message file: %v\n", err)
-		} else {
-			err = nil
-		}
+		err = nil
 	}
 	return hash, err
 }
