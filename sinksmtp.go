@@ -788,8 +788,16 @@ func writeLog(logger *smtpLogger, format string, elems ...interface{}) {
 	logger.Write([]byte(s))
 }
 
+func yakLog(dnlog io.Writer, trans *smtpTransaction, prefix, what string) {
+	if dnlog == nil {
+		return
+	}
+	fmt.Fprintf(dnlog, "%s [%s] %s %s -> %s\n", time.Now().Format(TimeNZ),
+		prefix, what, trans.rip, trans.laddr)
+}
+
 // Process a single connection.
-func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtplog io.Writer, baserules []*Rule) {
+func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtplog io.Writer, dnlog io.Writer, baserules []*Rule) {
 	var evt smtpd.EventInfo
 	var convo *smtpd.Conn
 	var logger *smtpLogger
@@ -836,6 +844,10 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 		sesscounts = false
 		events.yakkers.Add(1)
 		updateTimeOf("yakker", laddrstr)
+		// Log one line of information about this yakker.
+		// It would be potentially interesting to find out how old
+		// this yakker entry is, but we can't get that right now.
+		yakLog(dnlog, trans, prefix, "connection")
 	} else {
 		c = newContext(trans, rules)
 		updateTimeOf("regular", laddrstr)
@@ -1105,6 +1117,7 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 			writeLog(logger, "! %s forced to be a yakker\n", trans.rip)
 			events.yakads.Add(1)
 			events.yakforces.Add(1)
+			yakLog(dnlog, trans, prefix, "force-set")
 		}
 	case !gotsomewhere && sesscounts:
 		cnt = yakkers.Add(trans.rip, yakTimeout)
@@ -1117,6 +1130,7 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 		if cnt == yakCount {
 			writeLog(logger, "! %s added as a yakker at hit %d\n", trans.rip, cnt)
 			events.yakads.Add(1)
+			yakLog(dnlog, trans, prefix, "added")
 		}
 	case yakCount > 0 && gotsomewhere:
 		yakkers.Del(trans.rip)
@@ -1428,7 +1442,7 @@ in this process cause the connection to defer all commands with a
 `
 
 func main() {
-	var smtplogfile, logfile, rfiles string
+	var smtplogfile, logfile, dnlogfile, rfiles string
 	var certfile, keyfile string
 	var pprofserv string
 	var force, nostdrules, forcemany bool
@@ -1439,6 +1453,7 @@ func main() {
 	flag.BoolVar(&goslow, "S", false, "send output to the network slowly (10 characters/sec)")
 	flag.StringVar(&srvname, "helo", "", "server `hostname` for greeting banners")
 	flag.StringVar(&smtplogfile, "smtplog", "", "log all SMTP conversations to `file`, '-' for stdout")
+	flag.StringVar(&dnlogfile, "dnlog", "", "log all do-nothing client connections to `file`, '-' for stdout")
 	flag.StringVar(&logfile, "l", "", "log summary info about received email to `file`, '-' for stdout")
 	flag.StringVar(&savedir, "d", "", "`directory` to save received messages in")
 	flag.BoolVar(&force, "force-receive", false, "force accepting email even without a -d directory")
@@ -1485,6 +1500,9 @@ func main() {
 	if yakCount > 0 && yakTimeout < time.Second {
 		die("-dndur is too small; must be at least one second\n")
 	}
+	if dnlogfile != "" && yakCount == 0 {
+		die("-dnlog requires -dncount")
+	}
 
 	switch {
 	case certfile != "" && keyfile != "":
@@ -1507,6 +1525,10 @@ func main() {
 	logf, err := openlogfile(logfile)
 	if err != nil {
 		die("error opening logfile '%s': %v\n", logfile, err)
+	}
+	dnlogf, err := openlogfile(dnlogfile)
+	if err != nil {
+		die("Error opening do-nothing client log file '%s': %v\n", dnlogfile, err)
 	}
 
 	// Save a lot of explosive problems by testing if we can actually
@@ -1607,7 +1629,7 @@ func main() {
 		nc := <-listenc
 		events.connections.Add(1)
 		updateTimeOf("connection", nc.LocalAddr().String())
-		go process(cid, nc, certs, logf, slogf, baserules)
+		go process(cid, nc, certs, logf, slogf, dnlogf, baserules)
 		cid++
 	}
 }
