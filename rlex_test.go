@@ -221,8 +221,11 @@ func TestAllKeywords(t *testing.T) {
 		if kiv == itemEOF || kiv == itemEOL || kiv == itemComma {
 			continue
 		}
-		testitems := []item{{kiv, string(kc), 0}, tEOF}
-		items := collect(string(kc))
+		// string(rune(..)) is there just to pacify 'go vet'
+		// because yes I do mean to convert an int into a
+		// rune.
+		testitems := []item{{kiv, string(rune(kc)), 0}, tEOF}
+		items := collect(string(rune(kc)))
 		if !equal(items, testitems) {
 			t.Errorf("inversion on %v: got\n\t%+v\nexpected\n\t%+v", kc, items, testitems)
 		}

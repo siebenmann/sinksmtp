@@ -455,23 +455,33 @@ func writeDNSList(writer io.Writer, pref string, dlist []string) {
 	if len(dlist) == 0 {
 		return
 	}
-	fmt.Fprintf(writer, pref)
+	fmt.Fprint(writer, pref)
 	for _, e := range dlist {
 		fmt.Fprintf(writer, " %s", e)
 	}
 	fmt.Fprintf(writer, "\n")
 }
 
+// tlsProtoVersion returns a useful string describing a TLS version.
+// It's annoying that crypto/tls doesn't already provide things like
+// this, because of build issues that result across Go versions.
+//
+// This doesn't use the constants from crypto/tls so that it can build
+// under Go versions that don't have the constants defined (either
+// because they weren't added yet, for TLS 1.3, or because they've been
+// deprecated, for SSLv3.
 func tlsProtoVersion(ver uint16) string {
 	switch ver {
-	case tls.VersionSSL30:
+	case 0x0300: // tls.VersionSSL30
 		return "SSLv3"
-	case tls.VersionTLS10:
+	case 0x0301: // tls.VersionTLS10
 		return "TLSv1.0"
-	case tls.VersionTLS11:
+	case 0x0302: // tls.VersionTLS11
 		return "TLSv1.1"
-	case tls.VersionTLS12:
+	case 0x0303: // tls.VersionTLS12
 		return "TLSv1.2"
+	case 0x0304: // tls.VersionTLS13
+		return "TLSv1.3"
 	default:
 		return fmt.Sprintf("tls-0x%04x", ver)
 
@@ -933,7 +943,6 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 		// config-file control or something.
 		tlsc.SessionTicketsDisabled = true
 		tlsc.ServerName = sname
-		tlsc.BuildNameToCertificate()
 		cfg.TLSConfig = &tlsc
 	}
 	if blocktls && blcount >= 2 {
@@ -1406,7 +1415,7 @@ func usage() {
 	fmt.Fprintf(os.Stderr, "\t%s [options] [host]:port [[host]:port ...]\n", os.Args[0])
 	fmt.Fprintf(os.Stderr, "\nOptions:\n")
 	flag.PrintDefaults()
-	fmt.Fprintf(os.Stderr, noteStr)
+	fmt.Fprint(os.Stderr, noteStr)
 }
 
 var noteStr = `

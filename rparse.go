@@ -494,7 +494,7 @@ func (p *parser) pWClause(rc *RClause) (bool, error) {
 			if ct == itemNote {
 				idx := strings.IndexByte(arg, '\n')
 				if idx != -1 {
-					return gotone, p.posError(fmt.Sprintf("note contains embedded newline"))
+					return gotone, p.posError("note contains embedded newline")
 				}
 			}
 		case itemTlsOpt:
