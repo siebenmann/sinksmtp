@@ -359,7 +359,8 @@ func (dc *dnsblCounts) Stats() interface{} {
 // It encapsulates the prefix. Perhaps we could do this some other way,
 // for example with a function closure, but PUNT for now.
 // TODO: I'm convinced this is the wrong interface. See
-//    http://utcc.utoronto.ca/~cks/space/blog/programming/GoLoggingWrongIdiom
+//
+//	https://utcc.utoronto.ca/~cks/space/blog/programming/GoLoggingWrongIdiom
 type smtpLogger struct {
 	prefix []byte
 	writer *bufio.Writer
