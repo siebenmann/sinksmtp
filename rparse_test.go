@@ -197,7 +197,8 @@ accept not helo-has bareip
 accept host .b.c
 accept host .f
 # IP tests
-accept ip 192.168.10.3 ip 192.168.10.0/24 ip /ips ip 192.168.010.003
+accept ip 192.168.10.3 ip 192.168.10.0/24 ip /ips
+# Go 1.17 no longer accepts IPs with leading 0s: ip 192.168.010.003
 accept not ip 127.0.0.10
 # source tests
 accept source .f
