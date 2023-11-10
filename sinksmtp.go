@@ -12,7 +12,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -138,7 +137,7 @@ func loadRules(fname string) ([]*Rule, error) {
 		return nil, err
 	}
 	defer fp.Close()
-	b, err := ioutil.ReadAll(fp)
+	b, err := io.ReadAll(fp)
 	if err != nil {
 		return nil, err
 	}
@@ -444,7 +443,7 @@ func getHashes(trans *smtpTransaction) (string, string) {
 	if err != nil {
 		return hash, "<cannot-parse-message>"
 	}
-	body, err := ioutil.ReadAll(msg.Body)
+	body, err := io.ReadAll(msg.Body)
 	if err != nil {
 		return hash, "<cannot-read-body?>"
 	}
