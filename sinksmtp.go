@@ -689,7 +689,7 @@ func doAccept(convo *smtpd.Conn, c *Context, transid string) {
 		if transid != "" {
 			msg += "\nAccepted with ID " + transid
 		}
-		convo.AcceptMsg(msg)
+		convo.AcceptMsg("%s", msg)
 	case transid != "":
 		convo.AcceptData(transid)
 	default:
@@ -764,7 +764,7 @@ func decider(ph Phase, evt smtpd.EventInfo, c *Context, convo *smtpd.Conn, id st
 			if id != "" {
 				msg += "\nRejected with ID " + id
 			}
-			convo.RejectMsg(msg)
+			convo.RejectMsg("%s", msg)
 			return true
 		}
 		// Default messages are kind of intricate.
@@ -780,7 +780,7 @@ func decider(ph Phase, evt smtpd.EventInfo, c *Context, convo *smtpd.Conn, id st
 		}
 	case aStall:
 		if msg != "" {
-			convo.TempfailMsg(msg)
+			convo.TempfailMsg("%s", msg)
 		} else {
 			convo.Tempfail()
 		}
