@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"crypto/tls"
+	"crypto/x509"
 	"expvar"
 	"flag"
 	"fmt"
@@ -413,10 +414,15 @@ type smtpTransaction struct {
 
 	// Reflects the current state, so tlson false can convert to
 	// tlson true over time. cipher is valid only if tlson is true.
-	tlson      bool
-	cipher     uint16
-	tlsversion uint16
-	servername string
+	// servername is the SNI we were given, while peername is the
+	// name from any peer certificate; tlsverified is true if it
+	// is a verified name.
+	tlson       bool
+	cipher      uint16
+	tlsversion  uint16
+	servername  string
+	peername    string
+	tlsverified bool
 
 	// Make our logger accessible in decider() as a hack.
 	log      *smtpLogger
@@ -488,6 +494,55 @@ func tlsProtoVersion(ver uint16) string {
 	}
 }
 
+// tlsName returns the (host) name for the peer certificate,
+// either the Subject CommonName if it has one or the first
+// DNS name otherwise (or a complaint).
+func tlsName(cert *x509.Certificate) string {
+	if cert.Subject.CommonName != "" {
+		return cert.Subject.CommonName
+	}
+	if len(cert.DNSNames) > 0 {
+		return cert.DNSNames[0]
+	}
+	return "<no CN or DNS Names>"
+}
+
+func tlsTryVerifyConnection(state tls.ConnectionState) error {
+	if len(state.VerifiedChains) > 0 {
+		return nil
+	}
+	opts := x509.VerifyOptions{
+		// Since we're verifying a client certificate, we don't
+		// set DNSName. The only thing we can set it to is the
+		// name the client gave us, and that obviously verifies.
+		// Otherwise, this errors out if the client does SNI along
+		// with sending a client certificate (as GMail does).
+		//DNSName:       state.ServerName,
+		Intermediates: x509.NewCertPool(),
+		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	for _, cert := range state.PeerCertificates[1:] {
+		opts.Intermediates.AddCert(cert)
+	}
+	_, err := state.PeerCertificates[0].Verify(opts)
+	return err
+}
+
+// tlsPeerLog logs a report about the verification status of a TLS
+// client certificate.
+func tlsClientLog(state tls.ConnectionState, logger *smtpLogger) {
+	if len(state.PeerCertificates) == 0 {
+		return
+	}
+	err := tlsTryVerifyConnection(state)
+	peername := tlsName(state.PeerCertificates[0])
+	if err == nil {
+		writeLog(logger, "! TLS client certificate for '%s' verifies.\n", peername)
+	} else {
+		writeLog(logger, "! TLS client certificate for '%s' doesn't verify: %s\n", peername, err)
+	}
+}
+
 // return a block of bytes that records the message details,
 // including the actual message itself. We also return a hash of what
 // we consider the constant data about this message, which included
@@ -516,6 +571,12 @@ func msgDetails(prefix string, trans *smtpTransaction) ([]byte, string) {
 		fmt.Fprintf(writer, " proto %s", tlsProtoVersion(trans.tlsversion))
 		if trans.servername != "" {
 			fmt.Fprintf(writer, " server-name '%s'", trans.servername)
+		}
+		if trans.peername != "" {
+			fmt.Fprintf(writer, " client-name '%s'", trans.peername)
+		}
+		if trans.tlsverified {
+			fmt.Fprintf(writer, " client-name-verified")
 		}
 		fmt.Fprintf(writer, "\n")
 	}
@@ -938,6 +999,9 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 		//if blcount == 0 {
 		//	tlsc.ClientAuth = tls.VerifyClientCertIfGiven
 		//}
+		if blcount == 0 {
+			tlsc.ClientAuth = tls.RequestClientCert
+		}
 		// Now generally disabled since I discovered it causes
 		// SSLv3 handshakes to always fail. TODO: better fix with
 		// config-file control or something.
@@ -995,9 +1059,11 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 					gotsomewhere = true
 				}
 				events.ehloAccept.Add(1)
-				if convo.TLSOn {
+				if convo.TLSOn && !trans.tlson {
 					events.tlson.Add(1)
 					events.starttls.Add(1)
+					trans.tlson = convo.TLSOn
+					tlsClientLog(convo.TLSState, logger)
 				}
 			case smtpd.MAILFROM:
 				events.mailfrom.Add(1)
@@ -1073,6 +1139,14 @@ func process(cid int, nc net.Conn, certs []tls.Certificate, logf io.Writer, smtp
 			trans.cipher = convo.TLSState.CipherSuite
 			trans.servername = convo.TLSState.ServerName
 			trans.tlsversion = convo.TLSState.Version
+			if len(convo.TLSState.VerifiedChains) > 0 {
+				trans.tlsverified = true
+				trans.peername = tlsName(convo.TLSState.VerifiedChains[0][0])
+			} else if len(convo.TLSState.PeerCertificates) > 0 {
+				trans.peername = tlsName(convo.TLSState.PeerCertificates[0])
+				err := tlsTryVerifyConnection(convo.TLSState)
+				trans.tlsverified = (err == nil)
+			}
 			trans.hash, trans.bodyhash = getHashes(trans)
 			transid, err := handleMessage(prefix, trans, logf)
 			// errors when handling a message always force
